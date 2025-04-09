@@ -47,3 +47,11 @@ class PasswordResetToken(Base):
     token = Column(String(500), unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False, default=lambda: datetime.utcnow() + timedelta(minutes=15))  # Thời gian hết hạn của token
+
+class OTPAttempts(Base):
+    __tablename__ = 'otp_attempts'
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer)
+    failed_attempts = Column(Integer, default=0)
+    last_attempts = Column(DateTime, default=datetime.utcnow())
+    

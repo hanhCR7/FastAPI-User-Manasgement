@@ -11,7 +11,6 @@ bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/identity_service/login")
 load_dotenv()
 SERVICE_KEY = os.getenv('SERVICE_KEY')
-
 def hash_password( password: str) -> str:
     return bcrypt_context.hash(password)
 def verify_password( plain_password: str, hashed_password: str) -> bool:
@@ -151,6 +150,7 @@ async def send_email_otp(user_id: int, email: str):
             if response.status_code == 200:
                 return response.json()
         except httpx.RequestError as e:
+            print(f"Loi connect: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Lỗi khi gửi mail thông báo: {repr(e)}")
 # Validate OTP
 async def validate_otp(user_id: int, otp: str):
