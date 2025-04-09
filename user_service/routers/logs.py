@@ -26,7 +26,7 @@ async def get_user_logs(user_id: int, db: db_dependency, current_user: dict =Dep
     """Lấy danh sách tất cả các bản ghi đã thêm vào hệ thống của người dùng với ID truyền vào."""
     if current_user["role"] != "Admin" and current_user["user_id"] != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập vào tài nguyên này!!!")
-    if not db.query(Log).filter(Log.user_id == user_id).first():
+    if not db.query(Users).filter(Users.user_id == user_id).first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Người dùng không tồn tại!!!")
     list_logs = db.query(Log).filter(Log.user_id == user_id).order_by(Log.id).all()
     list_log_reponse = [LogResponse.from_orm(log) for log in list_logs]

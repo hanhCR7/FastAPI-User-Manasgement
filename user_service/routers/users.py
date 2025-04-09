@@ -3,6 +3,7 @@ import io
 import os
 import uuid
 import pandas as pd
+from pytz import UTC
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,8 +15,8 @@ from connect_service import validate_token_user, send_user_lock_notification
 from routers.logs import create_log
 from verify_api_key import verify_api_key
 from user_schemas import (
-    CreateUserRequest, UserResponse, UserStatus, 
-    UpdatePassword, AuthRequest, ListUserActive, 
+    CreateUserRequest, UpdateUserRequest, UserResponse, 
+    UserStatus, UpdatePassword, AuthRequest, ListUserActive, 
     EditUserActive, ActivationTokenRequest, EmailResquest,
     UpdatePasswordResquest
 )
@@ -84,7 +85,7 @@ async def create_user(create_user: CreateUserRequest, db: db_dependency,server_c
         "user": UserResponse.from_orm(create_user_model)
     }
 @router.put("/user/{user_id}", status_code=status.HTTP_200_OK)
-async def update_user(user_id: int, update_user: CreateUserRequest, db: db_dependency, current_user: dict = Depends(validate_token_user)):
+async def update_user(user_id: int, update_user: UpdateUserRequest, db: db_dependency, current_user: dict = Depends(validate_token_user)):
     """Cập nhật thông tin của User theo ID. Chỉ có Admin hoặc User đang đăng nhập mới có thể cập nhật."""
     if current_user["role"] != "Admin" and current_user["user_id"] != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập vào tài nguyên này!!!")
@@ -92,6 +93,10 @@ async def update_user(user_id: int, update_user: CreateUserRequest, db: db_depen
     user = db.query(Users).filter(Users.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Người dùng không tồn tại!!!")
+    if db.query(Users).filter(Users.username == update_user.username, Users.id != user_id).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tên người dùng đã tồn tại!!!")
+    if db.query(Users).filter(Users.email == update_user.email, Users.id != user_id).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email người dùng đã tồn tại!!!")
     user.first_name = update_user.first_name
     user.last_name = update_user.last_name
     user.username = update_user.username
@@ -129,7 +134,7 @@ async def update_time_last_login(user_id: int, db: db_dependency, server_connect
     user = db.query(Users).filter(Users.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Người dùng không tồn tại!!!")
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.utcnow().replace(tzinfo=UTC)
     db.commit()
     db.refresh(user)
     return {
@@ -180,7 +185,7 @@ async def export_users(db: db_dependency, current_user: dict = Depends(validate_
         "Content-Disposition": "attachment; filename=list_users.xlsx",
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
-    await create_log(current_user["user_id"], f"{current_user["username"]} Đã xuất file danh sách người dùng.",db)
+    await create_log(current_user["user_id"], f"{current_user['username']} Đã xuất file danh sách người dùng.",db)
     return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=header)
 @router.get("/check-invalid-user", status_code=status.HTTP_200_OK)
 async def check_invalid_user(db: db_dependency, current_user: dict = Depends(validate_token_user)):
@@ -200,7 +205,7 @@ async def check_invalid_user(db: db_dependency, current_user: dict = Depends(val
         email_task.append(send_user_lock_notification(user.email, user.username))
     db.commit()
     await asyncio.gather(*email_task)
-    await create_log(current_user["user_id"], f"{current_user["username"]} Đã kiểm tra người dùng không hoạt động trong 15 ngày.",db)
+    await create_log(current_user["user_id"], f"{current_user['username']} Đã kiểm tra người dùng không hoạt động trong 15 ngày.",db)
     return {
         "message": f"Có {len(inactive_user)} người dùng không hoạt động được tìm thấy và đánh dấu là không hoạt động"
     }
@@ -212,7 +217,7 @@ async def get_list_active_user(db: db_dependency, current_user: dict = Depends(v
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập vào tài nguyên này!!!")
     list_user = db.query(Users).order_by(Users.id).all()
     user_list_response = [ListUserActive.from_orm(user) for user in list_user]
-    await create_log(current_user["user_id"], f"{current_user["username"]} Đã xem danh sách người dùng hoạt động.",db)
+    await create_log(current_user["user_id"], f"{current_user['username']} Đã xem danh sách người dùng hoạt động.",db)
     return {
         "details": "List user active",
         "users": user_list_response
@@ -228,7 +233,7 @@ async def edit_active_user(user_id: int, db: db_dependency, current_user: dict =
     user.is_active = not user.is_active
     db.commit()
     db.refresh(user)
-    await create_log(current_user["user_id"], f"{current_user["username"]} Đã cập nhật trạng thái User thành công!", db)
+    await create_log(current_user["user_id"], f"{current_user['username']} Đã cập nhật trạng thái User thành công!", db)
     return {
         "details": "Cập nhật trạng thái người dùng thành công!",
         "user": EditUserActive.from_orm(user)

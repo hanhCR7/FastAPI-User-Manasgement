@@ -26,6 +26,24 @@ class CreateUserRequest(BaseModel):
         if not re.search(r'[A-Z]', value):
             raise ValueError("Mật khẩu phải chứa ít nhất một chữ cái viết hoa")
         return value
+# user_schemas.py
+class UpdateUserRequest(BaseModel):
+    first_name: str
+    last_name: str
+    username: str
+    email: str
+    password_hash: Optional[str]
+    status: UserStatus
+    def validate_new_password(cls, value):
+        if len(value) < 8:
+            raise ValueError("Mật khẩu phải có độ dài ít nhất 8 ký tự")
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', value):
+            raise ValueError("Mật khẩu phải chứa it nhất 1 ký tự đặc biệt")
+        if not re.search(r'[0-9]', value):
+            raise ValueError("Mật khẩu phải chứa ít nhất một số")
+        if not re.search(r'[A-Z]', value):
+            raise ValueError("Mật khẩu phải chứa ít nhất một chữ cái viết hoa")
+        return value
 # Schema cho response user
 class UserResponse(BaseModel):
     id: int
