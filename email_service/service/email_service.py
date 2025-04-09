@@ -1,4 +1,6 @@
-import smtplib  
+import aiosmtplib
+import asyncio
+import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from sqlalchemy.orm import Session
@@ -9,15 +11,23 @@ from datetime import datetime
 
 load_dotenv()
 
-# Load SMTP config từ .env
 SMTP_USERNAME = os.getenv("SMTP_USERNAME")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 SMTP_SERVER = os.getenv("SMTP_SERVER")
 SMTP_PORT = int(os.getenv("SMTP_PORT"))
 SMTP_FROM = os.getenv("SMTP_FROM")
 
+# Tạo một client SMTP dùng lại
+smtp_client = aiosmtplib.SMTP(
+    hostname=SMTP_SERVER,
+    port=SMTP_PORT,
+    username=SMTP_USERNAME,
+    password=SMTP_PASSWORD,
+    start_tls=True,
+    timeout=30
+)
 async def send_email(db: Session, recipient: str, subject: str, body: str):
-    """Gửi email đồng bộ và lưu log vào database."""
+    """Gửi email bất đồng bộ với SMTP client dùng lại."""
     msg = MIMEMultipart()
     msg["From"] = SMTP_FROM
     msg["To"] = recipient
@@ -25,33 +35,32 @@ async def send_email(db: Session, recipient: str, subject: str, body: str):
     msg.attach(MIMEText(body, "html"))
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=20) as smtp_client:
-            smtp_client.set_debuglevel(1)  # Bật log SMTP
-            smtp_client.ehlo()  # Xác thực EHLO trước khi TLS
-            smtp_client.starttls()
-            smtp_client.ehlo()  # Xác thực lại sau khi TLS
-            smtp_client.login(SMTP_USERNAME, SMTP_PASSWORD)
-            # Kiểm tra kết nối
-            status_code, response = smtp_client.noop()
-            if status_code != 250:
-                raise Exception(f"SMTP connection failed: {response}")
-            smtp_client.sendmail(SMTP_FROM, recipient, msg.as_string())
-        # Lưu log vào database
-        email_log = EmailLogs(
-            recipient=recipient,
-            subject=subject,
-            body=body,
-            status="Success",
-            created_at=datetime.utcnow()
-        )
-        db.add(email_log)
-        db.commit()
+        if not smtp_client.is_connected:
+            await smtp_client.connect()
+            await smtp_client.login(SMTP_USERNAME, SMTP_PASSWORD)
 
-        return True
-    except smtplib.SMTPAuthenticationError:
-        print("❌ Lỗi xác thực! Kiểm tra lại username/password.")
-    except smtplib.SMTPConnectError:
-        print("❌ Không thể kết nối SMTP! Kiểm tra server hoặc cổng.")
+        await smtp_client.send_message(msg)
+        status = "Success"
+    except aiosmtplib.errors.SMTPServerDisconnected:
+        status = "Lỗi: Server không kết nối"
+        await smtp_client.connect()
+    except asyncio.TimeoutError:
+        status = "Lỗi: Thời gian chờ trong khi gửi email"
+        print("Timeout error: ", status)
+    except aiosmtplib.SMTPException as e:
+        status = f"Lỗi: {str(e)}"
     except Exception as e:
-        print(f"❌ Lỗi gửi email: {e}")
-    return False
+        status = f"Lỗi: {str(e)}"
+
+    # Lưu log vào database
+    email_log = EmailLogs(
+        recipient=recipient,
+        subject=subject,
+        body=body,
+        status=status,
+        created_at=datetime.utcnow()
+    )
+    db.add(email_log)
+    db.commit()
+
+    return status == "Success"

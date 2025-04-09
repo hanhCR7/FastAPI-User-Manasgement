@@ -10,7 +10,6 @@ router = APIRouter(prefix="/api/email_service",tags=["emails"])
 async def send_otp_email(request: OTPRequest, db: Session = Depends(get_db)):
     try:
         otp = await generate_otp(db, request.user_id)  # Truyền user_id trước, db sau
-        print(otp)
         await send_email(db, request.email, "OTP Code", f"Your OTP code is: {otp}")
         return {
             "status": "success",
