@@ -49,15 +49,15 @@ Hệ thống quản lý người dùng (User Management System) được xây d�
 ```bash
 cd user-service
 .venv\Scripts\activate
-uvicorn main:app --port 9000 --reload
+uvicorn main:app --host localhost --port 9000 --reload
 
 cd identity-service
 .venv\Scripts\activate
-uvicorn main:app --port 9001 --reload
+uvicorn main:app --host localhost --port 9001 --reload
 
 cd email-service
 .venv\Scripts\activate
-uvicorn main:app --port 9002 --reload
+uvicorn main:app --host localhost --port 9002 --reload
 ```
 
 ## 🧪 Swagger Docs
