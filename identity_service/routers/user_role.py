@@ -1,9 +1,11 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from models import UserRole, Role
 from auth_per import get_current_user
 from databases import db_dependency
-from schemas import UserRoleRequest
+from schemas import UserRoleRequest, AssignRoleRequest
 from connect_service import get_user, log_user_action
+from verify_api_key import verify_api_key
 from service.redis_client import redis_clients, get_user_role_from_cache, set_user_role_in_cache
 router = APIRouter(prefix="/api/identity_service",tags=["user-role"])
 # API: Lấy thong tin user 
@@ -138,4 +140,38 @@ async def delete_user_role(user_role_request: UserRoleRequest, db: db_dependency
         "user_id": user_role_request.user_id,
         "role_name": user_role_request.role_name
     }
- 
+# Gán role Admin mặc cho account admin
+@router.post("/user-roles/assign-admin-role", status_code=status.HTTP_200_OK)
+async def assign_admin_role(request: AssignRoleRequest, db: db_dependency,server_connection_key: str = Depends(verify_api_key)):
+    """Dành cho hệ thống gọi nội bộ khi tạo user (vd: gán quyền admin ban đầu)."""
+    role = db.query(Role).filter(Role.name == request.role_name).first()
+    if not role:
+        role = Role(
+            name=request.role_name,
+            description="Vai trò quản trị viên hệ thống",
+            created_at=datetime.utcnow(),
+        )
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+        print(f"Vai trò 'Admin' đã được tạo với ID: {role.id}")
+    # Kiểm tra xem người dùng đã có vai trò này chưa
+    user_role = db.query(UserRole).filter(UserRole.user_id == request.user_id, UserRole.role_id == role.id).first()
+    if user_role:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Người dùng đã có vai trò này!")
+    # Tạo bản ghi UserRole
+    user_role = UserRole(user_id=request.user_id, role_id=role.id)
+    db.add(user_role)
+    db.commit()
+    db.refresh(user_role)
+    # Xóa cache cũ và lưu lại cache mới
+    cache_key = f"user_roles_{request.user_id}"
+    redis_clients.delete(cache_key)
+    set_user_role_in_cache(request.user_id, user_role)
+    return {
+        "detail": "Gán Role thành công!",
+        "user_role": {
+            "user_id": user_role.user_id,
+            "role_name": role.name
+        }
+    }

@@ -107,9 +107,13 @@ async def log_user_action(user_id: int, action: str):
             raise HTTPException(status_code=500, detail=f"Lỗi khi tạo log: {repr(e)}")
 #Kích hoạt account
 async def generate_activation_token(user_id: int):
+    headers = {"X-API-Key": SERVICE_KEY}
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(f'{USER_SERVICE_URL}generate-activation-token', json={"user_id": user_id})
+            response = await client.post(f'{USER_SERVICE_URL}generate-activation-token', 
+                json={"user_id": user_id},
+                headers=headers
+            )
             if response.status_code == 200:
                 return response.json()
         except httpx.RequestError as e:
@@ -188,7 +192,7 @@ async def get_user_by_email(email: str):
             raise HTTPException(status_code=500, detail=f"Lỗi khi gửi mail thông báo: {repr(e)}")
 # Cập nhật mật khẩu từ user service
 async def reset_update_password(user_id: int, new_password: str, confirm_password: str):
-
+    headers = {"X-API-Key": SERVICE_KEY}
     async with httpx.AsyncClient() as client:
         try:
             response = await client.put(
@@ -197,7 +201,8 @@ async def reset_update_password(user_id: int, new_password: str, confirm_passwor
                     "user_id": user_id,
                     "new_password": new_password,
                     "confirm_password": confirm_password
-                }
+                },
+                headers=headers
             )
             if response.status_code == 200:
                 return response.json()

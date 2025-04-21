@@ -38,6 +38,9 @@ class UserRoleResponse(BaseModel):
     role_name: str
     class Config:
         from_attributes  = True
+class AssignRoleRequest(BaseModel):
+    user_id: int
+    role_name: str
 class Token(BaseModel):
     access_token: str
     token_type: str

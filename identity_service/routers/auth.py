@@ -4,7 +4,7 @@ import uuid
 from dotenv import load_dotenv
 import jwt
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -63,11 +63,15 @@ def verify_refresh_token(token: str):
         raise HTTPException(status_code=500, detail=f"Lỗi: {e}")
 
 @router.post("/login", status_code=status.HTTP_200_OK, dependencies=[Depends(rate_limiters(redis_clients, "login"))])
-async def login(login: Login):
+async def login(login: Login, request: Request):
     """Trang đăng nhập
     Khi đăng nhập user sẽ được nhận một mã OTP qua email để xác minh
     """  
+    # Lấy địa chỉ IP của người dùng
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+    print(f"Địa chỉ IP của người dùng: {client_ip}")
     user_response = await get_user_with_password(login.username, login.password)
+    print(f"User response: {user_response}")
     if not user_response:
         raise HTTPException(status_code=404, detail="Tài khoản hoặc mật khẩu không đúng.")
     user_id = user_response.get('user_id')
@@ -122,6 +126,7 @@ async def sign_up(sign_up: SignUp, db: Session = Depends(get_db)):
     user_response = await sign_up_user(
         sign_up.first_name, sign_up.last_name, sign_up.username, sign_up.email, sign_up.password
     )
+    print("User response:", user_response)
     if not user_response or "user" not in user_response or "id" not in user_response["user"]:
         raise HTTPException(status_code=500, detail="Lỗi: Không lấy được user_id từ User Service")
     role = db.query(Role).filter(Role.name == "User").first()
