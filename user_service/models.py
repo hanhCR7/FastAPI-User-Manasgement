@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, func, Enum
 from sqlalchemy.orm import relationship
-from databases import Base
+from db_config import Base
 import enum
 # Enum cho trạng thái người dùng
 class UserStatus(enum.Enum):
@@ -18,6 +18,7 @@ class Users(Base):
     last_name = Column(String)
     password_hash = Column(String, nullable=False)
     activation_token = Column(String, nullable=True)
+    activation_token_expiration = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=False)
     status = Column(Enum(UserStatus, name="userstatus"), default=UserStatus.Inactive) 
     created_at = Column(DateTime, server_default=func.now())

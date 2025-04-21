@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from databases import db_dependency
+from db_config import db_dependency
 from sqlalchemy import func
 from models import Log, Users
 from user_schemas import LogResponse

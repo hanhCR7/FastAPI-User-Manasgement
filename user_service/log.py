@@ -1,4 +1,4 @@
-from databases import db_dependency
+from db_config import db_dependency
 from models import Log
 from fastapi.encoders import jsonable_encoder
 def log_user_action(db: db_dependency, user_id: int, action: str):

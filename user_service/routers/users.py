@@ -7,13 +7,13 @@ from pytz import UTC
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
-from passlib.context import CryptContext
 from fastapi.responses import StreamingResponse
-from databases import db_dependency
+from db_config import db_dependency
 from models import Users, UserStatus, Log
 from connect_service import validate_token_user, send_user_lock_notification
 from routers.logs import create_log
 from verify_api_key import verify_api_key
+from security import hash_password, verify_password
 from user_schemas import (
     CreateUserRequest, UpdateUserRequest, UserResponse, 
     UserStatus, UpdatePassword, AuthRequest, ListUserActive, 
@@ -21,7 +21,6 @@ from user_schemas import (
     UpdatePasswordResquest
 )
 router = APIRouter(prefix="/api/user_service",tags=["users"])
-bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
 @router.get("/user/all-user", status_code=status.HTTP_200_OK)
@@ -51,7 +50,7 @@ async def get_user_by_id(user_id: int, db: db_dependency):
 async def authenticate_user(data: AuthRequest,db: db_dependency):
     """Xác thực tài khoản người dùng."""
     user = db.query(Users).filter(Users.username == data.username).first()
-    if not user or not bcrypt_context.verify(data.password, user.password_hash):
+    if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sai tài khoản hoặc mật khẩu. Vui lòng kiểm tra lại!!!")
     return {
         "user_id": user.id, 
@@ -61,19 +60,18 @@ async def authenticate_user(data: AuthRequest,db: db_dependency):
         "is_active": user.is_active
     }
 @router.post('/user/create-user', status_code=status.HTTP_201_CREATED)
-async def create_user(create_user: CreateUserRequest, db: db_dependency,server_connection_key: str = Depends(verify_api_key), ):   
+async def create_user(create_user: CreateUserRequest, db: db_dependency,server_connection_key: str = Depends(verify_api_key)):   
     """Tạo mới User. Chỉ có Admin or User có quyền mới tạo được!"""
     if db.query(Users).filter(Users.username == create_user.username).first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tên người dùng đã tồn tại!!!")
     if db.query(Users).filter(Users.email == create_user.email).first():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email của người dùng đã tồn tại!!!")
-    password_hash = bcrypt_context.hash(create_user.password_hash)
     create_user_model = Users(
         first_name=create_user.first_name,
         last_name=create_user.last_name,
         username=create_user.username,
         email=create_user.email,
-        password_hash=password_hash,
+        password_hash=hash_password(create_user.password_hash),
         is_active=False,
         status=UserStatus.Inactive,
     )
@@ -102,7 +100,7 @@ async def update_user(user_id: int, update_user: UpdateUserRequest, db: db_depen
     user.username = update_user.username
     user.email = update_user.email
     if update_user.password_hash:
-        user.password_hash = bcrypt_context.hash(update_user.password_hash)
+        user.password_hash = hash_password(update_user.password_hash)
     user.status = update_user.status
     db.commit()
     db.refresh(user)
@@ -119,11 +117,11 @@ async def update_password(user_id: int, request: UpdatePassword, db: db_dependen
     user = db.query(Users).filter(Users.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Người dùng không tồn tại!!!")
-    if not bcrypt_context.verify(request.old_password, user.password_hash):
+    if not verify_password(request.old_password, user.password_hash):
         raise HTTPException(status_code=401, detail="Mật khẩu hiện tại không đúng!!!")
     if request.new_password != request.confirm_new_password:
         raise HTTPException(status_code=400, detail="Mật khẩu mới và xác nhận mật khẩu mới phải giống nhau!!!")
-    user.password_hash = bcrypt_context.hash(request.new_password)
+    user.password_hash = hash_password(request.new_password)
     db.commit() 
     return {
         "details": "Mật khẩu được cập nhật thành công!"
@@ -239,7 +237,8 @@ async def edit_active_user(user_id: int, db: db_dependency, current_user: dict =
         "user": EditUserActive.from_orm(user)
     }
 @router.post("/generate-activation-token", status_code=status.HTTP_200_OK)
-async def generate_activation_token(request: ActivationTokenRequest, db: db_dependency):
+async def generate_activation_token(request: ActivationTokenRequest, db: db_dependency, server_connection_key: str = Depends(verify_api_key)):
+    """Tạo token kích hoạt tài khoản người dùng."""
     user = db.query(Users).filter(Users.id == request.user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Người dùng không tồn tại!!!")
@@ -248,8 +247,7 @@ async def generate_activation_token(request: ActivationTokenRequest, db: db_depe
     db.commit()
     db.refresh(user)
     return {
-        "details": "Tạo token kích hoạt thành công!",
-        "activation_token": activation_token
+        "details": "Tạo token kích hoạt thành công!"
     }
 @router.get("/activate", status_code=status.HTTP_200_OK)
 async def activate_user(token: str, db: db_dependency):
@@ -257,6 +255,8 @@ async def activate_user(token: str, db: db_dependency):
     user = db.query(Users).filter(Users.activation_token == token).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token không hợp lệ!!!")
+    if user.activation_token_expiration < datetime.utcnow() + timedelta(seconds=30):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token đã hết hạn!!!")
     user.status = UserStatus.Active
     user.is_active = True
     user.activation_token = None
@@ -267,7 +267,7 @@ async def activate_user(token: str, db: db_dependency):
         "details": "Kích hoạt tài khoản thành công!"
     }
 @router.get("/users/get-user-by-email/{email}", status_code=status.HTTP_200_OK)
-async def get_user_by_email(email:str, db: db_dependency):
+async def get_user_by_email(email:str, db: db_dependency, server_connection_key: str = Depends(verify_api_key)):
     """Lấy thông tin người dùng theo email."""
     user = db.query(Users).filter(Users.email == email).first()
     if not user:
@@ -279,13 +279,14 @@ async def get_user_by_email(email:str, db: db_dependency):
     }
 # APi ĐẶt lai mật khẩu
 @router.put("/update-password/", status_code=status.HTTP_200_OK)
-async def update_password(request: UpdatePasswordResquest, db: db_dependency):
+async def update_password(request: UpdatePasswordResquest, db: db_dependency, server_connection_key: str = Depends(verify_api_key)):
+    """Cập nhật mật khẩu người dùng"""
     user = db.query(Users).filter(Users.id == request.user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Người dùng không tồn tại!!!")
     if request.new_password != request.confirm_password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mật khẩu mới và xác nhận mật khẩu mới phải giống nhau!!!")
-    user.password_hash = bcrypt_context.hash(request.new_password)
+    user.password_hash = hash_password(request.new_password)
     db.commit()
     db.refresh(user)
     await create_log(user.id, f"{user.username}: Đã cập nhật mật khẩu thành công!", db)
