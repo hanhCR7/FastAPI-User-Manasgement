@@ -36,21 +36,25 @@ async def send_email(db: Session, recipient: str, subject: str, body: str):
 
     try:
         if not smtp_client.is_connected:
-            await smtp_client.connect()
+            await smtp_client.connect(timeout=10)
             await smtp_client.login(SMTP_USERNAME, SMTP_PASSWORD)
 
         await smtp_client.send_message(msg)
         status = "Success"
     except aiosmtplib.errors.SMTPServerDisconnected:
-        status = "Lỗi: Server không kết nối"
-        await smtp_client.connect()
+        status = "Lỗi: Server bị ngắt kết nối"
     except asyncio.TimeoutError:
-        status = "Lỗi: Thời gian chờ trong khi gửi email"
-        print("Timeout error: ", status)
+        status = "Lỗi: Timeout khi gửi email"
     except aiosmtplib.SMTPException as e:
-        status = f"Lỗi: {str(e)}"
+        status = f"Lỗi SMTP: {str(e)}"
     except Exception as e:
-        status = f"Lỗi: {str(e)}"
+        status = f"Lỗi khác: {str(e)}"
+    finally:
+        try:
+            if smtp_client.is_connected:
+                await smtp_client.quit()
+        except:
+            pass
 
     # Lưu log vào database
     email_log = EmailLogs(
@@ -63,4 +67,5 @@ async def send_email(db: Session, recipient: str, subject: str, body: str):
     db.add(email_log)
     db.commit()
 
+    print(f"[EMAIL] Sent to: {recipient} | Status: {status}") 
     return status == "Success"
